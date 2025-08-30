@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { EditorCanvas } from './components/EditorCanvas';
@@ -15,6 +14,7 @@ const App: React.FC = () => {
     const [codiaData, setCodiaData] = useState<CodiaData | null>(null);
     const [zoom, setZoom] = useState(1.0);
     const mainContainerRef = useRef<HTMLElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
 
     useEffect(() => {
@@ -140,6 +140,60 @@ const App: React.FC = () => {
         setSelectedElements([{ id: newTextElement.id, type: newTextElement.type, style: newTextElement.style }]);
     }, [canvasSize, elements, setElements, setSelectedElements]);
 
+    const handleAddImage = useCallback(() => {
+        fileInputRef.current?.click();
+    }, []);
+
+    const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const imageUrl = event.target?.result as string;
+            const img = new Image();
+            img.onload = () => {
+                const MAX_DIMENSION = 400;
+                let width = img.width;
+                let height = img.height;
+                if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+                    if (width > height) {
+                        height = (height / width) * MAX_DIMENSION;
+                        width = MAX_DIMENSION;
+                    } else {
+                        width = (width / height) * MAX_DIMENSION;
+                        height = MAX_DIMENSION;
+                    }
+                }
+
+                const newImageElement: CanvasElement = {
+                    id: `image_${Date.now()}`,
+                    type: 'Image',
+                    x: canvasSize.width / 2 - width / 2,
+                    y: canvasSize.height / 2 - height / 2,
+                    width,
+                    height,
+                    draggable: true,
+                    zIndex: elements.length > 0 ? Math.max(...elements.map(e => e.zIndex)) + 1 : 1,
+                    imageUrl: imageUrl,
+                    style: {
+                        opacity: 1,
+                        rotation: 0,
+                    },
+                    originalData: {} as any,
+                };
+
+                setElements(prev => [...prev, newImageElement]);
+                setSelectedElements([{ id: newImageElement.id, type: newImageElement.type, style: newImageElement.style }]);
+            };
+            img.src = imageUrl;
+        };
+        reader.readAsDataURL(file);
+
+        // Reset file input value to allow selecting the same file again
+        e.target.value = '';
+    }, [canvasSize, elements, setElements, setSelectedElements]);
+
     const handleExport = useCallback(() => {
         if (!codiaData) return;
 
@@ -178,10 +232,18 @@ const App: React.FC = () => {
 
     return (
         <div className="min-h-screen flex flex-col font-sans">
+             <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                style={{ display: 'none' }}
+                accept="image/png, image/jpeg, image/gif"
+            />
             <Toolbar
                 onLoadSample={handleLoadSampleData}
                 onPasteJson={() => setJsonModalOpen(true)}
                 onAddText={handleAddText}
+                onAddImage={handleAddImage}
                 onExport={handleExport}
                 onDelete={handleDelete}
                 onDuplicate={handleDuplicate}

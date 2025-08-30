@@ -5,6 +5,7 @@ interface ToolbarProps {
     onLoadSample: () => void;
     onPasteJson: () => void;
     onAddText: () => void;
+    onAddImage: () => void;
     onExport: () => void;
     onDelete: () => void;
     onDuplicate: () => void;
@@ -39,6 +40,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     onLoadSample,
     onPasteJson,
     onAddText,
+    onAddImage,
     onExport,
     onDelete,
     onDuplicate,
@@ -114,6 +116,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     <Button onClick={onLoadSample}>Load Sample</Button>
                     <Button onClick={onPasteJson}>Paste JSON</Button>
                     <Button onClick={onAddText}>Add Text</Button>
+                    <Button onClick={onAddImage}>Add Image</Button>
                     <Button onClick={onExport} disabled={!hasElements}>Export</Button>
                 </div>
 

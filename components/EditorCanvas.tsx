@@ -340,7 +340,10 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
     }, [editingTextNode, onTextChange]);
 
-    // Update Transformer
+    // FIX: The Konva Transformer's `nodes` method requires an array of `Shape` or `Group` objects.
+    // The previous implementation could incorrectly pass a generic `Node` type.
+    // This has been updated to explicitly convert the found nodes to an array and then filter
+    // them using a type guard to ensure type safety and prevent runtime errors.
     useEffect(() => {
         if (!trRef.current || !layerRef.current) return;
         const tr = trRef.current;
@@ -353,16 +356,11 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                 .map(el => el.id)
         );
 
-        // FIX: Argument of type 'Node<NodeConfig>' is not assignable to parameter of type 'Shape<ShapeConfig> | Group'.
-        // The transformer can only attach to Shapes and Groups. We must filter for transformable node types.
-        const shapeNodes: (Konva.Shape | Konva.Group)[] = [];
-        layer.find(`.${ELEMENT_CLASS}`).forEach(node => {
-            if (draggableSelectedIds.has(node.id())) {
-                if (node instanceof Konva.Shape || node instanceof Konva.Group) {
-                    shapeNodes.push(node);
-                }
-            }
+        const nodes = layer.find(`.${ELEMENT_CLASS}`);
+        const shapeNodes = Array.from(nodes).filter((node): node is Konva.Shape | Konva.Group => {
+            return draggableSelectedIds.has(node.id()) && (node instanceof Konva.Shape || node instanceof Konva.Group);
         });
+
         tr.nodes(shapeNodes);
         
         if (shapeNodes.length === 0 || editingTextNode) {
