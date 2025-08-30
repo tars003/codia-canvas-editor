@@ -1,10 +1,12 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Toolbar } from './components/Toolbar';
+import { Header } from './components/Header';
 import { EditorCanvas } from './components/EditorCanvas';
 import { JsonModal } from './components/JsonModal';
 import { SAMPLE_CODIA_DATA } from './constants/sample-data';
 import { CodiaData, CanvasElement, SelectedElement, ElementStyle } from './types';
 import { parseCodiaData } from './utils/codiaParser';
+import { PropertiesPanel } from './components/PropertiesPanel';
+import { Footer } from './components/Footer';
 
 const App: React.FC = () => {
     const [elements, setElements] = useState<CanvasElement[]>([]);
@@ -18,40 +20,37 @@ const App: React.FC = () => {
 
 
     useEffect(() => {
-        // Preload fonts to avoid rendering issues with Konva
         document.fonts.ready.then(() => {
             console.log('Fonts loaded.');
         });
     }, []);
 
-    // FIX: Add state setters to dependency array to be explicit, even though they are stable.
     const processData = useCallback((data: CodiaData) => {
         setCodiaData(data);
         const { baseWidth, baseHeight } = data.data.configuration;
-        setCanvasSize({ width: baseWidth, height: baseHeight || baseWidth });
+        const newCanvasSize = { width: baseWidth, height: baseHeight || baseWidth };
+        setCanvasSize(newCanvasSize);
         const parsed = parseCodiaData(data.data.visualElement);
         setElements(parsed);
         setSelectedElements([]);
 
         if (mainContainerRef.current) {
-            const padding = 80; // Add some visual padding
+            const padding = 80;
             const { width: containerWidth, height: containerHeight } = mainContainerRef.current.getBoundingClientRect();
-            const scaleX = (containerWidth - padding) / baseWidth;
-            const scaleY = (containerHeight - padding) / (baseHeight || baseWidth);
-            setZoom(Math.min(scaleX, scaleY, 1.0)); // Fit to view, but don't scale up past 100% initially
+            const scaleX = (containerWidth - padding) / newCanvasSize.width;
+            const scaleY = (containerHeight - padding) / newCanvasSize.height;
+            setZoom(Math.min(scaleX, scaleY, 1.0));
         }
 
-    }, [setCanvasSize, setCodiaData, setElements, setSelectedElements, setZoom]);
+    }, []);
     
     const handleLoadSampleData = useCallback(() => {
         processData(SAMPLE_CODIA_DATA as CodiaData);
     }, [processData]);
 
-    // FIX: Add `setJsonModalOpen` to dependency array.
     const handleLoadJson = useCallback((jsonString: string) => {
         try {
             const data = JSON.parse(jsonString) as CodiaData;
-            // Basic validation
             if (!data?.data?.configuration || !data?.data?.visualElement) {
                 throw new Error("Invalid Codia JSON structure.");
             }
@@ -60,9 +59,8 @@ const App: React.FC = () => {
         } catch (error) {
             alert((error as Error).message);
         }
-    }, [processData, setJsonModalOpen]);
+    }, [processData]);
 
-    // FIX: Add `setElements` and `setSelectedElements` to dependency array.
     const handleUpdateElementStyle = useCallback((style: Partial<ElementStyle>) => {
         setSelectedElements(prevSelected => {
             const selectedIds = new Set(prevSelected.map(el => el.id));
@@ -78,23 +76,20 @@ const App: React.FC = () => {
                 );
             }
             
-            // Return the new state for selectedElements to update the toolbar
             return prevSelected.map(sel => ({
                 ...sel,
                 style: { ...sel.style, ...style },
             }));
         });
-    }, [setElements, setSelectedElements]);
+    }, []);
 
 
-    // FIX: Add `setElements` and `setSelectedElements` to dependency array.
     const handleDelete = useCallback(() => {
         const selectedIds = new Set(selectedElements.map(el => el.id));
         setElements(prev => prev.filter(el => !selectedIds.has(el.id)));
         setSelectedElements([]);
-    }, [selectedElements, setElements, setSelectedElements]);
+    }, [selectedElements]);
 
-    // FIX: Add `setElements` and `setSelectedElements` to dependency array.
     const handleDuplicate = useCallback(() => {
         const selectedIds = new Set(selectedElements.map(el => el.id));
         const elementsToDuplicate = elements.filter(el => selectedIds.has(el.id));
@@ -109,9 +104,8 @@ const App: React.FC = () => {
 
         setElements(prev => [...prev, ...newElements]);
         setSelectedElements(newElements.map(el => ({ id: el.id, type: el.type, style: el.style })));
-    }, [elements, selectedElements, setElements, setSelectedElements]);
+    }, [elements, selectedElements]);
 
-    // FIX: Add `setElements` and `setSelectedElements` to dependency array and use `canvasSize` object.
     const handleAddText = useCallback(() => {
         const newTextElement: CanvasElement = {
             id: `text_${Date.now()}`,
@@ -134,11 +128,11 @@ const App: React.FC = () => {
                 backgroundColor: 'transparent',
                 rotation: 0,
             },
-            originalData: {} as any, // This is a new element, no original data
+            originalData: {} as any,
         };
         setElements(prev => [...prev, newTextElement]);
         setSelectedElements([{ id: newTextElement.id, type: newTextElement.type, style: newTextElement.style }]);
-    }, [canvasSize, elements, setElements, setSelectedElements]);
+    }, [canvasSize, elements]);
 
     const handleAddImage = useCallback(() => {
         fileInputRef.current?.click();
@@ -189,32 +183,21 @@ const App: React.FC = () => {
             img.src = imageUrl;
         };
         reader.readAsDataURL(file);
-
-        // Reset file input value to allow selecting the same file again
         e.target.value = '';
-    }, [canvasSize, elements, setElements, setSelectedElements]);
+    }, [canvasSize.width, canvasSize.height, elements]);
 
     const handleExport = useCallback(() => {
         if (!codiaData) return;
-
         const modifiedElementsData = elements.map(el => {
             return {
-                id: el.id,
-                type: el.type,
-                x: el.x,
-                y: el.y,
-                width: el.width,
-                height: el.height,
+                id: el.id, type: el.type,
+                x: el.x, y: el.y,
+                width: el.width, height: el.height,
                 ...el.style,
                 text: el.type === 'Text' ? (el as any).text : undefined
             };
         });
-        
-        const exportData = {
-            originalCodiaData: codiaData,
-            modifiedElements: modifiedElementsData,
-        };
-
+        const exportData = { originalCodiaData: codiaData, modifiedElements: modifiedElementsData };
         const dataStr = JSON.stringify(exportData, null, 2);
         const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
         const linkElement = document.createElement('a');
@@ -223,15 +206,14 @@ const App: React.FC = () => {
         linkElement.click();
     }, [codiaData, elements]);
     
-    // FIX: Add `setElements` to dependency array.
     const handleTextChange = useCallback((id: string, newText: string) => {
         setElements(prev => 
             prev.map(el => el.id === id && el.type === 'Text' ? { ...el, text: newText } : el)
         );
-    }, [setElements]);
+    }, []);
 
     return (
-        <div className="min-h-screen flex flex-col font-sans">
+        <div className="h-screen w-screen bg-gray-50 text-gray-800 flex flex-col font-sans overflow-hidden">
              <input
                 type="file"
                 ref={fileInputRef}
@@ -239,39 +221,46 @@ const App: React.FC = () => {
                 style={{ display: 'none' }}
                 accept="image/png, image/jpeg, image/gif"
             />
-            <Toolbar
+            <Header
                 onLoadSample={handleLoadSampleData}
                 onPasteJson={() => setJsonModalOpen(true)}
                 onAddText={handleAddText}
                 onAddImage={handleAddImage}
                 onExport={handleExport}
-                onDelete={handleDelete}
-                onDuplicate={handleDuplicate}
-                onStyleChange={handleUpdateElementStyle}
-                selectedElements={selectedElements}
                 hasElements={elements.length > 0}
-                zoom={zoom}
-                onZoomChange={setZoom}
             />
-            <main ref={mainContainerRef} className="flex-grow flex items-center justify-center p-4 bg-gray-200 relative overflow-hidden">
-                {elements.length > 0 ? (
-                    <EditorCanvas
-                        elements={elements}
-                        onElementsChange={setElements}
+            <div className="flex-grow flex flex-row overflow-hidden">
+                <main ref={mainContainerRef} className="flex-grow flex items-center justify-center bg-gray-100 relative overflow-auto">
+                    {elements.length > 0 ? (
+                        <EditorCanvas
+                            elements={elements}
+                            onElementsChange={setElements}
+                            selectedElements={selectedElements}
+                            onSelectedElementsChange={setSelectedElements}
+                            width={canvasSize.width}
+                            height={canvasSize.height}
+                            onTextChange={handleTextChange}
+                            zoom={zoom}
+                        />
+                    ) : (
+                        <div className="text-center text-gray-500 bg-white p-20 rounded-lg shadow-sm border border-gray-200">
+                            <h2 className="text-2xl font-semibold mb-4">Welcome to the Codia AI Editor</h2>
+                            <p>Click "Load Sample" or "Paste JSON" in the header to begin.</p>
+                        </div>
+                    )}
+                </main>
+                <aside className="w-80 bg-white border-l border-gray-200 overflow-y-auto">
+                    <PropertiesPanel
                         selectedElements={selectedElements}
-                        onSelectedElementsChange={setSelectedElements}
-                        width={canvasSize.width}
-                        height={canvasSize.height}
-                        onTextChange={handleTextChange}
-                        zoom={zoom}
+                        onStyleChange={handleUpdateElementStyle}
+                        onDelete={handleDelete}
+                        onDuplicate={handleDuplicate}
                     />
-                ) : (
-                    <div className="text-center text-gray-500 bg-white p-20 rounded-lg shadow-md">
-                        <h2 className="text-2xl font-semibold mb-4">Welcome to the Codia Text Editor</h2>
-                        <p>Click "Load Sample Data" or "Paste JSON Data" to begin editing.</p>
-                    </div>
-                )}
-            </main>
+                </aside>
+            </div>
+            
+            <Footer zoom={zoom} onZoomChange={setZoom} hasElements={elements.length > 0} />
+
             <JsonModal
                 isOpen={isJsonModalOpen}
                 onClose={() => setJsonModalOpen(false)}

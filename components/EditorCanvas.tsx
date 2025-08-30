@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import Konva from 'konva';
 import { CanvasElement, SelectedElement, ElementStyle } from '../types';
@@ -287,7 +288,6 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             fontSize: `${editingTextNode.fontSize() * scale}px`,
             fontFamily: editingTextNode.fontFamily(),
             fontStyle: editingTextNode.fontStyle(),
-            // FIX: Property 'fontWeight' does not exist on type 'Text'. Access it via the stored style attribute.
             fontWeight: editingTextNode.getAttr('elementStyle')?.fontWeight || 'normal',
             textAlign: editingTextNode.align() as any,
             lineHeight: editingTextNode.lineHeight().toString(),
@@ -340,10 +340,6 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
     }, [editingTextNode, onTextChange]);
 
-    // FIX: The Konva Transformer's `nodes` method requires an array of `Shape` or `Group` objects.
-    // The previous implementation could incorrectly pass a generic `Node` type.
-    // This has been updated to explicitly convert the found nodes to an array and then filter
-    // them using a type guard to ensure type safety and prevent runtime errors.
     useEffect(() => {
         if (!trRef.current || !layerRef.current) return;
         const tr = trRef.current;
@@ -357,7 +353,11 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         );
 
         const nodes = layer.find(`.${ELEMENT_CLASS}`);
-        const shapeNodes = Array.from(nodes).filter((node): node is Konva.Shape | Konva.Group => {
+        
+        // Fix: Explicitly filter for Shape or Group instances to satisfy the Transformer's requirements.
+        // The result of `find` is a standard array of nodes.
+        // We filter this array to get only the selected and draggable shapes for the transformer.
+        const shapeNodes = nodes.filter((node): node is Konva.Shape | Konva.Group => {
             return draggableSelectedIds.has(node.id()) && (node instanceof Konva.Shape || node instanceof Konva.Group);
         });
 
@@ -373,5 +373,5 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         layer.batchDraw();
     }, [selectedElements, elements, editingTextNode]);
 
-    return <div ref={containerRef} className="bg-white shadow-lg" style={{ width, height }} />;
+    return <div ref={containerRef} className="bg-white shadow-lg rounded-md" style={{ width, height }} />;
 };
