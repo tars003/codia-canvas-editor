@@ -4,6 +4,7 @@ import { SelectedElement, ElementStyle } from '../types';
 interface ToolbarProps {
     onLoadSample: () => void;
     onPasteJson: () => void;
+    onAddText: () => void;
     onExport: () => void;
     onDelete: () => void;
     onDuplicate: () => void;
@@ -21,11 +22,9 @@ const Button: React.FC<React.PropsWithChildren<React.ButtonHTMLAttributes<HTMLBu
     </button>
 );
 
-const ToolbarIcon: React.FC<{ icon: string; isActive?: boolean; onClick?: () => void; }> = ({ icon, isActive, onClick }) => (
-    <button onClick={onClick} className={`p-2 rounded-md ${isActive ? 'bg-sky-500 text-white' : 'hover:bg-slate-600'}`}>
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d={icon} clipRule="evenodd" />
-        </svg>
+const ToolbarIcon: React.FC<{ icon: React.ReactNode; isActive?: boolean; disabled?: boolean; onClick?: () => void; title: string }> = ({ icon, isActive, disabled, onClick, title }) => (
+    <button onClick={onClick} disabled={disabled} title={title} className={`p-2 w-9 h-9 flex items-center justify-center rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isActive ? 'bg-sky-500 text-white' : 'hover:bg-slate-600'}`}>
+        {icon}
     </button>
 );
 
@@ -33,6 +32,7 @@ const ToolbarIcon: React.FC<{ icon: string; isActive?: boolean; onClick?: () => 
 export const Toolbar: React.FC<ToolbarProps> = ({
     onLoadSample,
     onPasteJson,
+    onAddText,
     onExport,
     onDelete,
     onDuplicate,
@@ -41,43 +41,74 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     hasElements,
 }) => {
     const isSelectionActive = selectedElements.length > 0;
-    const isSingleTextSelected = selectedElements.length === 1 && selectedElements[0].type === 'Text';
-    // FIX: Explicitly type `singleTextStyle` to prevent type errors when no element is selected.
-    const singleTextStyle: Partial<ElementStyle> = isSingleTextSelected ? selectedElements[0].style : {};
+    const isSingleSelection = selectedElements.length === 1;
+    const isTextSelected = isSelectionActive && selectedElements.every(el => el.type === 'Text');
+    
+    // Get styles from the first selected element to display in the toolbar
+    const primaryStyle: Partial<ElementStyle> = isSelectionActive ? selectedElements[0].style : {};
 
     const handleStyleChange = <K extends keyof ElementStyle,>(prop: K, value: ElementStyle[K]) => {
         onStyleChange({ [prop]: value });
     };
 
-    const toggleFontStyle = (style: 'bold' | 'italic') => {
-        const currentStyle = singleTextStyle.fontStyle || 'normal';
-        let newStyle;
-        if (style === 'bold') {
-            newStyle = currentStyle.includes('bold') ? currentStyle.replace('bold', '').trim() : `bold ${currentStyle}`.trim();
-        } else { // italic
-            newStyle = currentStyle.includes('italic') ? currentStyle.replace('italic', '').trim() : `italic ${currentStyle}`.trim();
-        }
-        if (newStyle === '') newStyle = 'normal';
-        onStyleChange({ fontStyle: newStyle });
+    const toggleBold = () => {
+        const isBold = primaryStyle.fontWeight === '700' || primaryStyle.fontWeight === 'bold';
+        handleStyleChange('fontWeight', isBold ? '400' : '700');
     };
+
+    const toggleItalic = () => {
+        const isItalic = primaryStyle.fontStyle === 'italic';
+        handleStyleChange('fontStyle', isItalic ? 'normal' : 'italic');
+    };
+
+    const toggleUnderline = () => {
+        const currentDecoration = primaryStyle.textDecoration || '';
+        let newDecoration = currentDecoration;
+        if (currentDecoration.includes('underline')) {
+            newDecoration = newDecoration.replace('underline', '').trim();
+        } else {
+            newDecoration = `${newDecoration} underline`.trim();
+        }
+        handleStyleChange('textDecoration', newDecoration);
+    };
+    
+    const toggleLineThrough = () => {
+        const currentDecoration = primaryStyle.textDecoration || '';
+        let newDecoration = currentDecoration;
+        if (currentDecoration.includes('line-through')) {
+            newDecoration = newDecoration.replace('line-through', '').trim();
+        } else {
+            newDecoration = `${newDecoration} line-through`.trim();
+        }
+        handleStyleChange('textDecoration', newDecoration);
+    };
+
+    const transparentBg = 'transparent';
+    const handleBgColorChange = (color: string) => {
+        handleStyleChange('backgroundColor', color === '#000000' ? transparentBg : color);
+    };
+
 
     return (
         <header className="bg-slate-800 text-white p-3 shadow-md z-10">
-            <div className="container mx-auto flex items-center justify-between flex-wrap gap-4">
+            <div className="container mx-auto flex items-center justify-between flex-wrap gap-y-3 gap-x-4">
                 <h1 className="text-xl font-bold text-white whitespace-nowrap">Codia Text Editor</h1>
 
                 <div className="flex items-center gap-2">
                     <Button onClick={onLoadSample}>Load Sample</Button>
                     <Button onClick={onPasteJson}>Paste JSON</Button>
+                    <Button onClick={onAddText}>Add Text</Button>
                     <Button onClick={onExport} disabled={!hasElements}>Export</Button>
                 </div>
 
+                {/* Text Formatting Group */}
                 <div className="flex items-center gap-2 bg-slate-700 p-1 rounded-md">
                      <select
                         id="fontFamily"
-                        value={singleTextStyle.fontFamily || 'Inter'}
+                        value={primaryStyle.fontFamily?.split(',')[0].replace(/"/g, '') || 'Inter'}
                         onChange={(e) => handleStyleChange('fontFamily', e.target.value)}
-                        disabled={!isSingleTextSelected}
+                        disabled={!isTextSelected}
+                        title="Font Family"
                         className="bg-slate-600 text-white text-sm rounded-md p-2 border-transparent focus:ring-2 focus:ring-sky-500 focus:border-sky-500 disabled:opacity-50"
                     >
                         <option>Inter</option>
@@ -91,29 +122,67 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                      <input
                         type="number"
                         id="fontSize"
-                        value={singleTextStyle.fontSize || 16}
+                        value={primaryStyle.fontSize || 16}
                         onChange={(e) => handleStyleChange('fontSize', parseInt(e.target.value, 10))}
-                        disabled={!isSingleTextSelected}
-                        className="w-20 bg-slate-600 text-white text-sm rounded-md p-2 border-transparent focus:ring-2 focus:ring-sky-500 focus:border-sky-500 disabled:opacity-50"
+                        disabled={!isTextSelected}
+                        title="Font Size"
+                        className="w-16 bg-slate-600 text-white text-sm rounded-md p-2 border-transparent focus:ring-2 focus:ring-sky-500 focus:border-sky-500 disabled:opacity-50"
                     />
                     <input
                         type="color"
                         id="textColor"
-                        value={singleTextStyle.fill || '#000000'}
+                        value={primaryStyle.fill || '#000000'}
                         onChange={(e) => handleStyleChange('fill', e.target.value)}
-                        disabled={!isSingleTextSelected}
+                        disabled={!isTextSelected}
+                        title="Text Color"
+                        className="w-10 h-10 p-1 bg-slate-600 rounded-md border-transparent cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    <input
+                        type="color"
+                        id="bgColor"
+                        value={primaryStyle.backgroundColor === transparentBg ? '#000000' : primaryStyle.backgroundColor || '#ffffff'}
+                        onChange={(e) => handleBgColorChange(e.target.value)}
+                        disabled={!isTextSelected}
+                        title="Background Color"
                         className="w-10 h-10 p-1 bg-slate-600 rounded-md border-transparent cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                 </div>
 
                 <div className="flex items-center gap-1 bg-slate-700 p-1 rounded-md">
-                    <ToolbarIcon icon="M10 4.5a.75.75 0 01.75.75v1.5h1.5a.75.75 0 010 1.5h-1.5v1.5a.75.75 0 01-1.5 0v-1.5h-1.5a.75.75 0 010-1.5h1.5v-1.5a.75.75 0 01.75-.75zM10 12a1 1 0 100 2h.01a1 1 0 100-2H10z" onClick={() => toggleFontStyle('bold')} isActive={singleTextStyle.fontStyle?.includes('bold')} />
-                    <ToolbarIcon icon="M8.5 5.5a.75.75 0 00-1.5 0v2.5a.75.75 0 001.5 0V5.5zM10 5.5a.75.75 0 01.75-.75h.5a.75.75 0 010 1.5h-.5a.75.75 0 01-.75-.75zM11.5 14.5a.75.75 0 001.5 0v-2.5a.75.75 0 00-1.5 0v2.5zM10 14.5a.75.75 0 01-.75.75h-.5a.75.75 0 010-1.5h.5a.75.75 0 01.75.75z" onClick={() => toggleFontStyle('italic')} isActive={singleTextStyle.fontStyle?.includes('italic')} />
+                    <ToolbarIcon title="Bold" icon={<span className="font-bold">B</span>} onClick={toggleBold} isActive={primaryStyle.fontWeight === '700' || primaryStyle.fontWeight === 'bold'} disabled={!isTextSelected}/>
+                    <ToolbarIcon title="Italic" icon={<span className="italic">I</span>} onClick={toggleItalic} isActive={primaryStyle.fontStyle === 'italic'} disabled={!isTextSelected}/>
+                    <ToolbarIcon title="Underline" icon={<span className="underline">U</span>} onClick={toggleUnderline} isActive={primaryStyle.textDecoration?.includes('underline')} disabled={!isTextSelected}/>
+                    <ToolbarIcon title="Strikethrough" icon={<span className="line-through">S</span>} onClick={toggleLineThrough} isActive={primaryStyle.textDecoration?.includes('line-through')} disabled={!isTextSelected}/>
                 </div>
                  <div className="flex items-center gap-1 bg-slate-700 p-1 rounded-md">
-                    <ToolbarIcon icon="M3 4.75A.75.75 0 013.75 4h12.5a.75.75 0 010 1.5H3.75A.75.75 0 013 4.75zM3 9.75A.75.75 0 013.75 9h12.5a.75.75 0 010 1.5H3.75A.75.75 0 013 9.75zM3.75 14a.75.75 0 000 1.5h12.5a.75.75 0 000-1.5H3.75z" onClick={() => handleStyleChange('align', 'left')} isActive={singleTextStyle.align === 'left'} />
-                    <ToolbarIcon icon="M3 4.75A.75.75 0 013.75 4h12.5a.75.75 0 010 1.5H3.75A.75.75 0 013 4.75zM6.75 9a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5zM3.75 14a.75.75 0 000 1.5h12.5a.75.75 0 000-1.5H3.75z" onClick={() => handleStyleChange('align', 'center')} isActive={singleTextStyle.align === 'center'}/>
-                    <ToolbarIcon icon="M3 4.75A.75.75 0 013.75 4h12.5a.75.75 0 010 1.5H3.75A.75.75 0 013 4.75zM3 9.75A.75.75 0 013.75 9h12.5a.75.75 0 010 1.5H3.75A.75.75 0 013 9.75zM3.75 14a.75.75 0 000 1.5h12.5a.75.75 0 000-1.5H3.75z" onClick={() => handleStyleChange('align', 'right')} isActive={singleTextStyle.align === 'right'}/>
+                    <ToolbarIcon title="Align Left" icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 9a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 14a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" /></svg>} onClick={() => handleStyleChange('align', 'left')} isActive={primaryStyle.align === 'left'} disabled={!isTextSelected}/>
+                    <ToolbarIcon title="Align Center" icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 9a1 1 0 011-1h6a1 1 0 110 2H4a1 1 0 01-1-1zM3 14a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" /></svg>} onClick={() => handleStyleChange('align', 'center')} isActive={primaryStyle.align === 'center'} disabled={!isTextSelected}/>
+                    <ToolbarIcon title="Align Right" icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM9 9a1 1 0 011-1h6a1 1 0 110 2h-6a1 1 0 01-1-1zm-6 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" /></svg>} onClick={() => handleStyleChange('align', 'right')} isActive={primaryStyle.align === 'right'} disabled={!isTextSelected}/>
+                </div>
+                
+                {/* Element Properties Group */}
+                <div className="flex items-center gap-2 bg-slate-700 p-1 rounded-md">
+                    <label htmlFor="opacity" className="text-sm pl-2">Opacity</label>
+                    <input
+                        type="range"
+                        id="opacity"
+                        min="0" max="100"
+                        value={Math.round((primaryStyle.opacity ?? 1) * 100)}
+                        onChange={(e) => handleStyleChange('opacity', parseInt(e.target.value, 10) / 100)}
+                        disabled={!isSelectionActive}
+                        title="Opacity"
+                        className="w-24 h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <label htmlFor="rotation" className="text-sm pl-2">Rotate</label>
+                     <input
+                        type="number"
+                        id="rotation"
+                        value={Math.round(primaryStyle.rotation || 0)}
+                        onChange={(e) => handleStyleChange('rotation', parseInt(e.target.value, 10))}
+                        disabled={!isSingleSelection}
+                        title="Rotation"
+                        className="w-16 bg-slate-600 text-white text-sm rounded-md p-2 border-transparent focus:ring-2 focus:ring-sky-500 focus:border-sky-500 disabled:opacity-50"
+                    />
                 </div>
                 
                 <div className="flex items-center gap-2">

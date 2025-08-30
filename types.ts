@@ -54,10 +54,12 @@ export interface ElementStyle {
     opacity: number;
     fontFamily?: string;
     fontSize?: number;
-    fontStyle?: string;
+    fontStyle?: 'normal' | 'italic';
     fontWeight?: string;
     textDecoration?: string;
     align?: 'left' | 'center' | 'right';
+    backgroundColor?: string;
+    rotation?: number;
 }
 
 export interface CanvasElement {

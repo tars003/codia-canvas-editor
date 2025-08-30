@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { EditorCanvas } from './components/EditorCanvas';
@@ -62,26 +61,28 @@ const App: React.FC = () => {
     }, [processData]);
 
     const handleUpdateElementStyle = useCallback((style: Partial<ElementStyle>) => {
-        setElements(prevElements => {
-            const selectedIds = new Set(selectedElements.map(el => el.id));
-            return prevElements.map(el => {
-                if (selectedIds.has(el.id) && el.type === 'Text') {
-                    return { ...el, style: { ...el.style, ...style } };
-                }
-                return el;
-            });
-        });
-         // Also update the selectedElements state to reflect style changes in toolbar
         setSelectedElements(prevSelected => {
-            return prevSelected.map(sel => {
-                if (sel.type === 'Text') {
-                    return { ...sel, style: { ...sel.style, ...style } };
-                }
-                return sel;
-            });
+            const selectedIds = new Set(prevSelected.map(el => el.id));
+            
+            if (selectedIds.size > 0) {
+                setElements(prevElements =>
+                    prevElements.map(el => {
+                        if (selectedIds.has(el.id)) {
+                            return { ...el, style: { ...el.style, ...style } };
+                        }
+                        return el;
+                    })
+                );
+            }
+            
+            // Return the new state for selectedElements to update the toolbar
+            return prevSelected.map(sel => ({
+                ...sel,
+                style: { ...sel.style, ...style },
+            }));
         });
+    }, []);
 
-    }, [selectedElements]);
 
     const handleDelete = useCallback(() => {
         const selectedIds = new Set(selectedElements.map(el => el.id));
@@ -104,6 +105,34 @@ const App: React.FC = () => {
         setElements(prev => [...prev, ...newElements]);
         setSelectedElements(newElements.map(el => ({ id: el.id, type: el.type, style: el.style })));
     }, [elements, selectedElements]);
+
+    const handleAddText = useCallback(() => {
+        const newTextElement: CanvasElement = {
+            id: `text_${Date.now()}`,
+            type: 'Text',
+            x: canvasSize.width / 2 - 150,
+            y: canvasSize.height / 2 - 25,
+            width: 300,
+            height: 50,
+            draggable: true,
+            zIndex: elements.length > 0 ? Math.max(...elements.map(e => e.zIndex)) + 1 : 1,
+            text: 'Type something...',
+            style: {
+                fill: '#333333',
+                opacity: 1,
+                fontFamily: 'Inter',
+                fontSize: 40,
+                fontStyle: 'normal',
+                fontWeight: 'normal',
+                align: 'center',
+                backgroundColor: 'transparent',
+                rotation: 0,
+            },
+            originalData: {} as any, // This is a new element, no original data
+        };
+        setElements(prev => [...prev, newTextElement]);
+        setSelectedElements([{ id: newTextElement.id, type: newTextElement.type, style: newTextElement.style }]);
+    }, [canvasSize.width, canvasSize.height, elements]);
 
     const handleExport = useCallback(() => {
         if (!codiaData) return;
@@ -145,6 +174,7 @@ const App: React.FC = () => {
             <Toolbar
                 onLoadSample={handleLoadSampleData}
                 onPasteJson={() => setJsonModalOpen(true)}
+                onAddText={handleAddText}
                 onExport={handleExport}
                 onDelete={handleDelete}
                 onDuplicate={handleDuplicate}

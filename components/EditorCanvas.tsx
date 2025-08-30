@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import Konva from 'konva';
 import { CanvasElement, SelectedElement } from '../types';
@@ -14,6 +13,8 @@ interface EditorCanvasProps {
     zoom: number;
     onZoomChange: (newZoom: number) => void;
 }
+
+const ELEMENT_CLASS = 'canvas-element';
 
 export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     elements,
@@ -33,299 +34,250 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
     const [editingTextNode, setEditingTextNode] = useState<Konva.Text | null>(null);
 
+    const handleDeselectAll = useCallback(() => {
+        onSelectedElementsChange([]);
+    }, [onSelectedElementsChange]);
+
+
+    const handleSelect = useCallback((e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+        const clickedNode = e.target;
+        const isElement = clickedNode.name() === ELEMENT_CLASS;
+
+        if (!isElement) {
+            handleDeselectAll();
+            return;
+        }
+
+        const metaPressed = e.evt.shiftKey || e.evt.ctrlKey || e.evt.metaKey;
+        const newSelectionItem = {
+            id: clickedNode.id(),
+            type: clickedNode.getAttr('elementType'),
+            style: clickedNode.getAttr('elementStyle'),
+        };
+
+        onSelectedElementsChange(currentSelection => {
+            const isSelected = currentSelection.some(el => el.id === clickedNode.id());
+
+            if (metaPressed) {
+                if (isSelected) {
+                    return currentSelection.filter(el => el.id !== clickedNode.id());
+                } else {
+                    return [...currentSelection, newSelectionItem];
+                }
+            } else {
+                if (!isSelected || currentSelection.length > 1) {
+                    return [newSelectionItem];
+                }
+                 // If it's already selected and it's the only one, do nothing (keep selection)
+                return currentSelection;
+            }
+        });
+    }, [onSelectedElementsChange, handleDeselectAll]);
+
+
+    // Moved from useEffect to prevent stale closures when elements are updated.
+    // These handlers use functional updates to work with the latest state.
+    const handleDragEnd = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
+        const node = e.target;
+        onElementsChange(prev => prev.map(el =>
+            el.id === node.id() ? { ...el, x: node.x(), y: node.y() } : el
+        ));
+    }, [onElementsChange]);
+
+    const handleTransformEnd = useCallback((e: Konva.KonvaEventObject<any>) => {
+        const node = e.target;
+        const scaleX = node.scaleX();
+        const scaleY = node.scaleY();
+        node.scaleX(1);
+        node.scaleY(1);
+        
+        onElementsChange(prev => prev.map(el =>
+            el.id === node.id() ? {
+                ...el,
+                x: node.x(),
+                y: node.y(),
+                width: Math.max(5, node.width() * scaleX),
+                height: Math.max(5, node.height() * scaleY),
+                style: { ...el.style, rotation: node.rotation() }
+            } : el
+        ));
+    }, [onElementsChange]);
+
+
     // Initialize Stage
     useEffect(() => {
-        if (!containerRef.current) return;
+        if (!containerRef.current || stageRef.current) return;
         
-        stageRef.current = new Konva.Stage({
+        const stage = new Konva.Stage({
             container: containerRef.current,
             width: width,
             height: height,
             draggable: true,
         });
+        stageRef.current = stage;
 
-        layerRef.current = new Konva.Layer();
-        stageRef.current.add(layerRef.current);
+        const layer = new Konva.Layer();
+        layerRef.current = layer;
+        stage.add(layer);
         
-        trRef.current = new Konva.Transformer({
+        const tr = new Konva.Transformer({
             keepRatio: false,
-            enabledAnchors: ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right'],
              boundBoxFunc: (oldBox, newBox) => {
                 newBox.width = Math.max(30, newBox.width);
                 newBox.height = Math.max(20, newBox.height);
                 return newBox;
-            }
+            },
+            rotationSnaps: [0, 90, 180, 270],
         });
-        layerRef.current.add(trRef.current);
+        trRef.current = tr;
+        layer.add(tr);
 
-        const stage = stageRef.current;
+        stage.on('click tap', handleSelect);
 
         stage.on('wheel', (e) => {
             e.evt.preventDefault();
             const scaleBy = 1.05;
             const oldScale = stage.scaleX();
             const pointer = stage.getPointerPosition();
-
             if (!pointer) return;
-
             const mousePointTo = {
                 x: (pointer.x - stage.x()) / oldScale,
                 y: (pointer.y - stage.y()) / oldScale,
             };
-
             const newScale = e.evt.deltaY > 0 ? oldScale / scaleBy : oldScale * scaleBy;
-            const clampedScale = Math.max(0.1, Math.min(3.0, newScale));
-            
-            onZoomChange(clampedScale);
-
+            onZoomChange(newScale);
             const newPos = {
-                x: pointer.x - mousePointTo.x * clampedScale,
-                y: pointer.y - mousePointTo.y * clampedScale,
+                x: pointer.x - mousePointTo.x * newScale,
+                y: pointer.y - mousePointTo.y * newScale,
             };
             stage.position(newPos);
-        });
-
-        stage.on('click tap', (e) => {
-            if (e.target === stage || !e.target.getAttr('draggable')) {
-                onSelectedElementsChange([]);
-                return;
-            }
-            
-            const metaPressed = e.evt.shiftKey || e.evt.ctrlKey || e.evt.metaKey;
-            const clickedId = e.target.id();
-            const isSelected = selectedElements.some(el => el.id === clickedId);
-            
-            if (!metaPressed) {
-                const clickedElement = elements.find(el => el.id === clickedId);
-                onSelectedElementsChange(clickedElement ? [{ id: clickedId, type: clickedElement.type, style: clickedElement.style }] : []);
-            } else {
-                if (isSelected) {
-                    onSelectedElementsChange(prev => prev.filter(el => el.id !== clickedId));
-                } else {
-                    const clickedElement = elements.find(el => el.id === clickedId);
-                    if(clickedElement) {
-                        onSelectedElementsChange(prev => [...prev, { id: clickedId, type: clickedElement.type, style: clickedElement.style }]);
-                    }
-                }
-            }
-        });
-        
-        stage.on('dblclick dbltap', (e) => {
-            if (e.target.className === 'Text') {
-                setEditingTextNode(e.target as Konva.Text);
-            }
+            stage.batchDraw();
         });
 
         return () => {
             stage.destroy();
+            stageRef.current = null;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [width, height, onZoomChange]);
-    
-    // Handle programmatic zoom changes (e.g., from footer buttons)
+    }, [width, height, onZoomChange, handleSelect]);
+
+    // Update zoom
     useEffect(() => {
-        const stage = stageRef.current;
-        if (stage && stage.scaleX() !== zoom) {
-            const oldScale = stage.scaleX();
-            
-            // Zoom to the center of the viewport
-            const center = {
-                x: stage.width() / 2,
-                y: stage.height() / 2,
-            };
-
-            const relatedTo = {
-                x: (center.x - stage.x()) / oldScale,
-                y: (center.y - stage.y()) / oldScale,
-            };
-
-            const newPos = {
-                x: center.x - relatedTo.x * zoom,
-                y: center.y - relatedTo.y * zoom,
-            };
-
-            stage.scale({ x: zoom, y: zoom });
-            stage.position(newPos);
-            stage.batchDraw();
+        if (stageRef.current && stageRef.current.scaleX() !== zoom) {
+            stageRef.current.scale({ x: zoom, y: zoom });
+            stageRef.current.batchDraw();
         }
     }, [zoom]);
 
-    // Draw elements
+
+     // Redraw elements when `elements` prop changes
     useEffect(() => {
+        if (!layerRef.current) return;
         const layer = layerRef.current;
-        if (!layer) return;
 
-        layer.destroyChildren();
-        layer.add(trRef.current!);
+        const elementIds = new Set(elements.map(el => el.id));
         
-        const sortedElements = [...elements].sort((a, b) => a.zIndex - b.zIndex);
-
-        sortedElements.forEach(el => {
-            let shape: Konva.Shape | null = null;
-            if (el.type === 'Rect' || (el.type === 'Image' && !el.imageUrl)) {
-                shape = new Konva.Rect({
-                    id: el.id, x: el.x, y: el.y, width: el.width, height: el.height, draggable: el.draggable,
-                    ...el.style,
-                });
-            } else if (el.type === 'Image' && el.imageUrl) {
-                const imageNode = new Konva.Image({
-                    id: el.id, x: el.x, y: el.y, width: el.width, height: el.height, draggable: el.draggable,
-                    // FIX: The `image` property is required by `Konva.ImageConfig`. Initialize as undefined; it will be set later when the image loads.
-                    image: undefined,
-                    ...el.style,
-                });
-                if (imageCache.current.has(el.imageUrl)) {
-                    imageNode.image(imageCache.current.get(el.imageUrl));
-                } else {
-                    const img = new Image();
-                    img.crossOrigin = 'Anonymous';
-                    img.src = el.imageUrl;
-                    img.onload = () => {
-                        imageNode.image(img);
-                        layer.batchDraw();
-                    };
-                    imageCache.current.set(el.imageUrl, img);
-                }
-                shape = imageNode;
-            } else if (el.type === 'Text') {
-                shape = new Konva.Text({
-                    id: el.id, x: el.x, y: el.y, width: el.width, height: el.height, draggable: el.draggable,
-                    text: el.text,
-                    ...el.style,
-                });
-                shape.on('transform', () => {
-                    shape!.setAttrs({
-                        width: shape!.width() * shape!.scaleX(),
-                        height: shape!.height() * shape!.scaleY(),
-                        scaleX: 1, scaleY: 1
-                    });
-                });
-            }
-
-            if (shape) {
-                shape.on('dragend', (e) => {
-                     onElementsChange(prev => prev.map(elem => 
-                        elem.id === e.target.id() ? { ...elem, x: e.target.x(), y: e.target.y() } : elem
-                     ));
-                });
-                shape.on('transformend', (e) => {
-                    onElementsChange(prev => prev.map(elem => {
-                        // FIX: Cast e.target to Konva.Shape to resolve TypeScript error where it was inferred as 'unknown'.
-                        const node = e.target as Konva.Shape;
-                        if (elem.id === node.id()) {
-                            return { 
-                                ...elem, 
-                                x: node.x(), 
-                                y: node.y(),
-                                width: node.width() * node.scaleX(),
-                                height: node.height() * node.scaleY(),
-                            }
-                        }
-                        return elem;
-                     }));
-                });
-                layer.add(shape);
+        // Remove nodes that are no longer in the elements array
+        layer.find(`.${ELEMENT_CLASS}`).forEach(node => {
+            if (!elementIds.has(node.id())) {
+                node.destroy();
             }
         });
+
+        elements.forEach(elData => {
+            let node = layer.findOne(`#${elData.id}`);
+
+            const commonAttrs = {
+                id: elData.id,
+                name: ELEMENT_CLASS,
+                x: elData.x, y: elData.y,
+                width: elData.width, height: elData.height,
+                draggable: elData.draggable,
+                rotation: elData.style.rotation || 0,
+                scaleX: 1, scaleY: 1,
+                opacity: elData.style.opacity,
+            };
+
+            if (node) { // Update existing node
+                 const updateAttrs = {
+                     ...commonAttrs,
+                     ...elData.style,
+                     ...(elData.type === 'Text' && { text: elData.text }),
+                 };
+                 node.setAttrs(updateAttrs);
+
+            } else { // Create new node
+                if (elData.type === 'Text') {
+                    node = new Konva.Text({ ...commonAttrs, text: elData.text, ...elData.style });
+                } else if (elData.type === 'Rect') {
+                    node = new Konva.Rect({ ...commonAttrs, ...elData.style });
+                } else if (elData.type === 'Image' && elData.imageUrl) {
+                    node = new Konva.Image({ ...commonAttrs, ...elData.style, image: undefined });
+                }
+                
+                if (node) {
+                    node.on('dragend', handleDragEnd);
+                    node.on('transformend', handleTransformEnd);
+                    layer.add(node);
+                }
+            }
+
+            if (node) {
+                node.setAttr('elementStyle', elData.style);
+                node.setAttr('elementType', elData.type);
+                node.zIndex(elData.zIndex);
+
+                if (elData.type === 'Image' && elData.imageUrl) {
+                    const konvaImage = node as Konva.Image;
+                    const cachedImg = imageCache.current.get(elData.imageUrl);
+                    if (cachedImg) {
+                        konvaImage.image(cachedImg);
+                        layer.batchDraw();
+                    } else {
+                        const img = new Image();
+                        img.src = elData.imageUrl;
+                        img.crossOrigin = 'Anonymous';
+                        img.onload = () => {
+                            imageCache.current.set(elData.imageUrl!, img);
+                            if (konvaImage.getStage()) { // Check if node is still mounted
+                                konvaImage.image(img);
+                                layer.batchDraw();
+                            }
+                        };
+                    }
+                }
+            }
+        });
+
         layer.batchDraw();
-    }, [elements, onElementsChange]);
+    }, [elements, handleDragEnd, handleTransformEnd]);
 
     // Update Transformer
     useEffect(() => {
+        if (!trRef.current || !layerRef.current) return;
         const tr = trRef.current;
         const layer = layerRef.current;
-        const stage = stageRef.current;
-        if (!tr || !layer || !stage) return;
-        
         const selectedIds = new Set(selectedElements.map(el => el.id));
-        const nodes = Array.from(layer.children).filter(node => selectedIds.has(node.id()));
-        
-        tr.nodes(nodes as Konva.Node[]);
-        layer.batchDraw();
-    }, [selectedElements]);
 
-    // Handle Text Editing
-    useEffect(() => {
-        if (!editingTextNode) {
-            trRef.current?.show();
-            return;
-        }
-
-        const stage = stageRef.current!;
-        const textNode = editingTextNode;
-        textNode.hide();
-        trRef.current?.hide();
-        layerRef.current?.batchDraw();
-
-        const stageBox = stage.container().getBoundingClientRect();
-        const textPosition = textNode.absolutePosition();
-        const areaPosition = {
-            x: stageBox.left + textPosition.x * stage.scaleX() + stage.x(),
-            y: stageBox.top + textPosition.y * stage.scaleY() + stage.y()
-        };
-
-        const textarea = document.createElement('textarea');
-        document.body.appendChild(textarea);
-        
-        textarea.value = textNode.text();
-        textarea.style.position = 'absolute';
-        textarea.style.top = `${areaPosition.y}px`;
-        textarea.style.left = `${areaPosition.x}px`;
-        textarea.style.width = `${textNode.width() * stage.scaleX()}px`;
-        textarea.style.height = `${textNode.height() * stage.scaleY()}px`;
-        textarea.style.fontSize = `${textNode.fontSize() * stage.scaleX()}px`;
-        textarea.style.fontFamily = textNode.fontFamily();
-        textarea.style.border = '2px solid #0ea5e9';
-        textarea.style.padding = '4px';
-        textarea.style.margin = '0px';
-        textarea.style.overflow = 'hidden';
-        textarea.style.background = 'white';
-        textarea.style.outline = 'none';
-        textarea.style.resize = 'none';
-        textarea.style.lineHeight = textNode.lineHeight().toString();
-        // FIX: textNode.fill() can return a CanvasGradient, which is not assignable to style.color. We ensure the value is a string.
-        const fillColor = textNode.fill();
-        if (typeof fillColor === 'string') {
-            textarea.style.color = fillColor;
-        }
-        textarea.style.textAlign = textNode.align();
-        textarea.style.zIndex = '1000';
-        
-        textarea.focus();
-        
-        const removeTextarea = () => {
-            textarea.remove();
-            window.removeEventListener('click', handleOutsideClick);
-            textNode.show();
-            setEditingTextNode(null);
-        };
-        
-        const handleOutsideClick = (e: MouseEvent) => {
-            if (e.target !== textarea) {
-                onTextChange(textNode.id(), textarea.value);
-                removeTextarea();
-            }
-        };
-        
-        textarea.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                onTextChange(textNode.id(), textarea.value);
-                removeTextarea();
-            }
-            if (e.key === 'Escape') {
-                removeTextarea();
+        const nodesToTransform: Konva.Node[] = [];
+        layer.find(`.${ELEMENT_CLASS}`).forEach(node => {
+            if (selectedIds.has(node.id())) {
+                nodesToTransform.push(node);
             }
         });
-        
-        setTimeout(() => {
-            window.addEventListener('click', handleOutsideClick);
-        }, 0);
 
-        return () => {
-            textarea.remove();
-            window.removeEventListener('click', handleOutsideClick);
-        };
-    }, [editingTextNode, onTextChange, zoom]);
+        // FIX: Konva Transformer expects an array of Shapes or Groups, but stage.find() returns generic Nodes.
+        // We filter the array with a type guard to ensure we only pass compatible node types.
+        const shapeNodes = nodesToTransform.filter((node): node is Konva.Shape | Konva.Group => node instanceof Konva.Shape || node instanceof Konva.Group);
+        tr.nodes(shapeNodes);
+        
+        if (shapeNodes.length === 0) {
+            tr.hide();
+        } else {
+            tr.show();
+        }
+
+        layer.batchDraw();
+    }, [selectedElements]);
 
     return <div ref={containerRef} className="bg-white shadow-lg" style={{ width, height }} />;
 };

@@ -1,5 +1,4 @@
-
-import { VisualElement, CanvasElement } from '../types';
+import { VisualElement, CanvasElement, ElementStyle } from '../types';
 
 const rgbToHex = (rgb: [number, number, number] | undefined): string => {
     if (!rgb) return '#000000';
@@ -21,14 +20,11 @@ const getFontFamily = (family: string | undefined): string => {
     return family ? (fallbacks[family] || `${family}, sans-serif`) : 'Arial, sans-serif';
 };
 
-const getFontStyle = (style: string | undefined): { fontStyle: string, fontWeight: string } => {
+const getFontProperties = (style: string | undefined): { fontStyle: 'normal' | 'italic', fontWeight: string } => {
     if (!style) return { fontStyle: 'normal', fontWeight: '400' };
     const lowerStyle = style.toLowerCase();
     
-    let fontStyle = 'normal';
-    if (lowerStyle.includes('italic')) {
-        fontStyle = 'italic';
-    }
+    const fontStyle = lowerStyle.includes('italic') ? 'italic' : 'normal';
 
     const weightMap: { [key: string]: string } = {
         'thin': '100', 'extralight': '200', 'light': '300',
@@ -60,6 +56,11 @@ export const parseCodiaData = (rootElement: VisualElement): CanvasElement[] => {
         
         zIndexCounter++;
 
+        const baseStyle: Partial<ElementStyle> = {
+            opacity,
+            rotation: 0,
+        };
+
         // Handle Layer as a background rectangle
         if (element.elementType === 'Layer' && element.styleConfig.textColor) {
             flatElements.push({
@@ -69,12 +70,12 @@ export const parseCodiaData = (rootElement: VisualElement): CanvasElement[] => {
                 draggable: false,
                 zIndex: zIndexCounter,
                 style: {
+                    ...baseStyle,
                     fill: rgbToHex(element.styleConfig.textColor?.rgbValues),
-                    opacity,
                     stroke: rgbToHex(element.styleConfig.borderConfig?.borderColor?.rgbValues),
-                    strokeWidth: element.styleConfig.borderConfig?.borderWidth,
+                    strokeWidth: element.styleConfig.borderConfig?.borderWidth || 0,
                     cornerRadius: element.styleConfig.borderConfig?.borderRadius?.[0] || 0
-                },
+                } as ElementStyle,
                 originalData: element,
             });
         }
@@ -92,10 +93,10 @@ export const parseCodiaData = (rootElement: VisualElement): CanvasElement[] => {
                 zIndex: zIndexCounter,
                 imageUrl: element.contentData?.imageSource,
                 style: {
-                   opacity,
+                   ...baseStyle,
                    // If no image source, it might be a styled rect
                    fill: !element.contentData?.imageSource ? rgbToHex(element.styleConfig.textColor?.rgbValues) : undefined,
-                },
+                } as ElementStyle,
                 originalData: element,
             });
         }
@@ -103,7 +104,7 @@ export const parseCodiaData = (rootElement: VisualElement): CanvasElement[] => {
         // Handle Text
         if (element.elementType === 'Text' && element.contentData?.textValue) {
             const textConfig = element.styleConfig.textConfig;
-            const { fontStyle, fontWeight } = getFontStyle(textConfig?.fontStyle);
+            const { fontStyle, fontWeight } = getFontProperties(textConfig?.fontStyle);
             
             flatElements.push({
                 id: element.elementId,
@@ -113,13 +114,16 @@ export const parseCodiaData = (rootElement: VisualElement): CanvasElement[] => {
                 zIndex: zIndexCounter,
                 text: element.contentData.textValue.replace(/\\n/g, '\n'),
                 style: {
+                    ...baseStyle,
                     fill: rgbToHex(element.styleConfig.textColor?.rgbValues),
-                    opacity,
                     fontFamily: getFontFamily(textConfig?.fontFamilyRec || textConfig?.fontFamily),
-                    fontSize: textConfig?.fontSize,
-                    fontStyle: `${fontStyle} ${fontWeight}`.trim(),
+                    fontSize: textConfig?.fontSize || 16,
+                    fontStyle: fontStyle,
+                    fontWeight: fontWeight,
                     align: textConfig?.textAlign[1].toLowerCase() as 'left' | 'center' | 'right',
-                },
+                    backgroundColor: 'transparent',
+                    textDecoration: '',
+                } as ElementStyle,
                 originalData: element,
             });
         }
