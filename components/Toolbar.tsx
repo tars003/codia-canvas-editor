@@ -11,7 +11,13 @@ interface ToolbarProps {
     onStyleChange: (style: Partial<ElementStyle>) => void;
     selectedElements: SelectedElement[];
     hasElements: boolean;
+    zoom: number;
+    onZoomChange: (newZoom: number) => void;
 }
+
+const MIN_ZOOM = 0.1;
+const MAX_ZOOM = 3.0;
+const ZOOM_STEP = 0.1;
 
 const Button: React.FC<React.PropsWithChildren<React.ButtonHTMLAttributes<HTMLButtonElement>>> = ({ children, ...props }) => (
     <button
@@ -39,6 +45,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     onStyleChange,
     selectedElements,
     hasElements,
+    zoom,
+    onZoomChange,
 }) => {
     const isSelectionActive = selectedElements.length > 0;
     const isSingleSelection = selectedElements.length === 1;
@@ -86,6 +94,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     const transparentBg = 'transparent';
     const handleBgColorChange = (color: string) => {
         handleStyleChange('backgroundColor', color === '#000000' ? transparentBg : color);
+    };
+
+    const handleZoomOut = () => {
+        onZoomChange(Math.max(MIN_ZOOM, zoom - ZOOM_STEP));
+    };
+
+    const handleZoomIn = () => {
+        onZoomChange(Math.min(MAX_ZOOM, zoom + ZOOM_STEP));
     };
 
 
@@ -186,6 +202,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 </div>
                 
                 <div className="flex items-center gap-2">
+                     <div className="flex items-center gap-1 bg-slate-700 p-1 rounded-md">
+                        <ToolbarIcon title="Zoom Out" disabled={!hasElements} icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clipRule="evenodd" /></svg>} onClick={handleZoomOut} />
+                        <span className="text-sm font-medium w-16 text-center tabular-nums" aria-live="polite">{Math.round(zoom * 100)}%</span>
+                        <ToolbarIcon title="Zoom In" disabled={!hasElements} icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" /></svg>} onClick={handleZoomIn} />
+                    </div>
                     <Button onClick={onDelete} disabled={!isSelectionActive}>Delete</Button>
                     <Button onClick={onDuplicate} disabled={!isSelectionActive}>Duplicate</Button>
                 </div>

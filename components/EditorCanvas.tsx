@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import Konva from 'konva';
-import { CanvasElement, SelectedElement } from '../types';
+import { CanvasElement, SelectedElement, ElementStyle } from '../types';
 
 interface EditorCanvasProps {
     elements: CanvasElement[];
@@ -11,7 +11,6 @@ interface EditorCanvasProps {
     height: number;
     onTextChange: (id: string, newText: string) => void;
     zoom: number;
-    onZoomChange: (newZoom: number) => void;
 }
 
 const ELEMENT_CLASS = 'canvas-element';
@@ -25,7 +24,6 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     height,
     onTextChange,
     zoom,
-    onZoomChange,
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const stageRef = useRef<Konva.Stage | null>(null);
@@ -40,6 +38,9 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
 
     const handleSelect = useCallback((e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+        // Do not trigger selection if we are trying to edit text
+        if (e.target.getAttr('isEditing')) return;
+        
         const clickedNode = e.target;
         const isElement = clickedNode.name() === ELEMENT_CLASS;
 
@@ -68,15 +69,12 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                 if (!isSelected || currentSelection.length > 1) {
                     return [newSelectionItem];
                 }
-                 // If it's already selected and it's the only one, do nothing (keep selection)
                 return currentSelection;
             }
         });
     }, [onSelectedElementsChange, handleDeselectAll]);
 
 
-    // Moved from useEffect to prevent stale closures when elements are updated.
-    // These handlers use functional updates to work with the latest state.
     const handleDragEnd = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
         const node = e.target;
         onElementsChange(prev => prev.map(el =>
@@ -102,6 +100,12 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             } : el
         ));
     }, [onElementsChange]);
+
+    const handleTextDblClick = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+        const textNode = e.target as Konva.Text;
+        textNode.setAttr('isEditing', true); // Custom attribute to prevent selection
+        setEditingTextNode(textNode);
+    }, []);
 
 
     // Initialize Stage
@@ -134,38 +138,38 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
         stage.on('click tap', handleSelect);
 
-        stage.on('wheel', (e) => {
-            e.evt.preventDefault();
-            const scaleBy = 1.05;
-            const oldScale = stage.scaleX();
-            const pointer = stage.getPointerPosition();
-            if (!pointer) return;
-            const mousePointTo = {
-                x: (pointer.x - stage.x()) / oldScale,
-                y: (pointer.y - stage.y()) / oldScale,
-            };
-            const newScale = e.evt.deltaY > 0 ? oldScale / scaleBy : oldScale * scaleBy;
-            onZoomChange(newScale);
-            const newPos = {
-                x: pointer.x - mousePointTo.x * newScale,
-                y: pointer.y - mousePointTo.y * newScale,
-            };
-            stage.position(newPos);
-            stage.batchDraw();
-        });
-
         return () => {
             stage.destroy();
             stageRef.current = null;
         };
-    }, [width, height, onZoomChange, handleSelect]);
+    }, [width, height, handleSelect]);
 
-    // Update zoom
+    // Update zoom and center the stage
     useEffect(() => {
-        if (stageRef.current && stageRef.current.scaleX() !== zoom) {
-            stageRef.current.scale({ x: zoom, y: zoom });
-            stageRef.current.batchDraw();
-        }
+        const stage = stageRef.current;
+        if (!stage) return;
+
+        const oldScale = stage.scaleX();
+        if (oldScale === zoom) return;
+
+        const center = {
+            x: stage.width() / 2,
+            y: stage.height() / 2,
+        };
+
+        const relatedTo = {
+            x: (center.x - stage.x()) / oldScale,
+            y: (center.y - stage.y()) / oldScale,
+        };
+        
+        const newPos = {
+            x: center.x - relatedTo.x * zoom,
+            y: center.y - relatedTo.y * zoom,
+        };
+
+        stage.scale({ x: zoom, y: zoom });
+        stage.position(newPos);
+        stage.batchDraw();
     }, [zoom]);
 
 
@@ -176,7 +180,6 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
         const elementIds = new Set(elements.map(el => el.id));
         
-        // Remove nodes that are no longer in the elements array
         layer.find(`.${ELEMENT_CLASS}`).forEach(node => {
             if (!elementIds.has(node.id())) {
                 node.destroy();
@@ -197,7 +200,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                 opacity: elData.style.opacity,
             };
 
-            if (node) { // Update existing node
+            if (node) {
                  const updateAttrs = {
                      ...commonAttrs,
                      ...elData.style,
@@ -205,9 +208,10 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                  };
                  node.setAttrs(updateAttrs);
 
-            } else { // Create new node
+            } else {
                 if (elData.type === 'Text') {
                     node = new Konva.Text({ ...commonAttrs, text: elData.text, ...elData.style });
+                    node.on('dblclick dbltap', handleTextDblClick);
                 } else if (elData.type === 'Rect') {
                     node = new Konva.Rect({ ...commonAttrs, ...elData.style });
                 } else if (elData.type === 'Image' && elData.imageUrl) {
@@ -231,14 +235,13 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                     const cachedImg = imageCache.current.get(elData.imageUrl);
                     if (cachedImg) {
                         konvaImage.image(cachedImg);
-                        layer.batchDraw();
                     } else {
                         const img = new Image();
                         img.src = elData.imageUrl;
                         img.crossOrigin = 'Anonymous';
                         img.onload = () => {
                             imageCache.current.set(elData.imageUrl!, img);
-                            if (konvaImage.getStage()) { // Check if node is still mounted
+                            if (konvaImage.getStage()) {
                                 konvaImage.image(img);
                                 layer.batchDraw();
                             }
@@ -249,35 +252,128 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         });
 
         layer.batchDraw();
-    }, [elements, handleDragEnd, handleTransformEnd]);
+    }, [elements, handleDragEnd, handleTransformEnd, handleTextDblClick]);
+
+    // Handle inline text editing
+    useEffect(() => {
+        if (!editingTextNode) return;
+
+        const stage = stageRef.current;
+        if (!stage || !stage.container()) return;
+        
+        editingTextNode.hide();
+        trRef.current?.hide();
+        layerRef.current?.draw();
+
+        const textarea = document.createElement('textarea');
+        stage.container().appendChild(textarea);
+        
+        const textPosition = editingTextNode.absolutePosition();
+        const stageBox = stage.container().getBoundingClientRect();
+        const areaPosition = {
+            x: stageBox.left + textPosition.x,
+            y: stageBox.top + textPosition.y,
+        };
+
+        const rotation = editingTextNode.rotation();
+        const scale = editingTextNode.scaleX() * stage.scaleX();
+
+        Object.assign(textarea.style, {
+            position: 'absolute',
+            top: `${areaPosition.y}px`,
+            left: `${areaPosition.x}px`,
+            width: `${editingTextNode.width() * scale}px`,
+            height: `${editingTextNode.height() * scale + 5}px`,
+            fontSize: `${editingTextNode.fontSize() * scale}px`,
+            fontFamily: editingTextNode.fontFamily(),
+            fontStyle: editingTextNode.fontStyle(),
+            // FIX: Property 'fontWeight' does not exist on type 'Text'. Access it via the stored style attribute.
+            fontWeight: editingTextNode.getAttr('elementStyle')?.fontWeight || 'normal',
+            textAlign: editingTextNode.align() as any,
+            lineHeight: editingTextNode.lineHeight().toString(),
+            color: editingTextNode.fill(),
+            border: '1px solid #666',
+            padding: '0px',
+            margin: '0px',
+            overflow: 'hidden',
+            background: 'white',
+            outline: 'none',
+            resize: 'none',
+            transformOrigin: 'left top',
+            transform: `rotate(${rotation}deg)`,
+            zIndex: '100',
+        });
+        
+        textarea.value = editingTextNode.text();
+        textarea.focus();
+        textarea.select();
+
+        const finishEditing = () => {
+            const newText = textarea.value;
+            onTextChange(editingTextNode.id(), newText);
+            setEditingTextNode(null);
+        };
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                finishEditing();
+            } else if (e.key === 'Escape') {
+                setEditingTextNode(null);
+            }
+        };
+        
+        textarea.addEventListener('keydown', handleKeyDown);
+        textarea.addEventListener('blur', finishEditing);
+        
+        return () => {
+            textarea.removeEventListener('keydown', handleKeyDown);
+            textarea.removeEventListener('blur', finishEditing);
+            textarea.parentNode?.removeChild(textarea);
+
+            if (editingTextNode.getStage()) {
+                editingTextNode.setAttr('isEditing', false);
+                editingTextNode.show();
+                layerRef.current?.draw();
+            }
+        };
+
+    }, [editingTextNode, onTextChange]);
 
     // Update Transformer
     useEffect(() => {
         if (!trRef.current || !layerRef.current) return;
         const tr = trRef.current;
         const layer = layerRef.current;
+        
         const selectedIds = new Set(selectedElements.map(el => el.id));
+        const draggableSelectedIds = new Set(
+            elements
+                .filter(el => selectedIds.has(el.id) && el.draggable)
+                .map(el => el.id)
+        );
 
-        const nodesToTransform: Konva.Node[] = [];
+        // FIX: Argument of type 'Node<NodeConfig>' is not assignable to parameter of type 'Shape<ShapeConfig> | Group'.
+        // The transformer can only attach to Shapes and Groups. We must filter for transformable node types.
+        const shapeNodes: (Konva.Shape | Konva.Group)[] = [];
         layer.find(`.${ELEMENT_CLASS}`).forEach(node => {
-            if (selectedIds.has(node.id())) {
-                nodesToTransform.push(node);
+            if (draggableSelectedIds.has(node.id())) {
+                if (node instanceof Konva.Shape || node instanceof Konva.Group) {
+                    shapeNodes.push(node);
+                }
             }
         });
-
-        // FIX: Konva Transformer expects an array of Shapes or Groups, but stage.find() returns generic Nodes.
-        // We filter the array with a type guard to ensure we only pass compatible node types.
-        const shapeNodes = nodesToTransform.filter((node): node is Konva.Shape | Konva.Group => node instanceof Konva.Shape || node instanceof Konva.Group);
         tr.nodes(shapeNodes);
         
-        if (shapeNodes.length === 0) {
+        if (shapeNodes.length === 0 || editingTextNode) {
             tr.hide();
         } else {
             tr.show();
+            tr.moveToTop();
         }
 
         layer.batchDraw();
-    }, [selectedElements]);
+    }, [selectedElements, elements, editingTextNode]);
 
     return <div ref={containerRef} className="bg-white shadow-lg" style={{ width, height }} />;
 };

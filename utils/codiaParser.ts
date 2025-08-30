@@ -82,23 +82,38 @@ export const parseCodiaData = (rootElement: VisualElement): CanvasElement[] => {
         
         // Handle Image
         if (element.elementType === 'Image') {
-            const elementName = element.elementName?.toLowerCase() || '';
-            const isBackgroundImage = elementName.includes('background') || (width >= 800 && height >= 600) || (x === 0 && y === 0);
-            
-            flatElements.push({
-                id: element.elementId,
-                type: 'Image',
-                x, y, width, height,
-                draggable: !isBackgroundImage,
-                zIndex: zIndexCounter,
-                imageUrl: element.contentData?.imageSource,
-                style: {
-                   ...baseStyle,
-                   // If no image source, it might be a styled rect
-                   fill: !element.contentData?.imageSource ? rgbToHex(element.styleConfig.textColor?.rgbValues) : undefined,
-                } as ElementStyle,
-                originalData: element,
-            });
+            // If imageSource is present, treat it as a real image.
+            if (element.contentData?.imageSource) {
+                flatElements.push({
+                    id: element.elementId,
+                    type: 'Image',
+                    x, y, width, height,
+                    draggable: false, // Images from Codia data are not draggable.
+                    zIndex: zIndexCounter,
+                    imageUrl: element.contentData.imageSource,
+                    style: {
+                       ...baseStyle,
+                    } as ElementStyle,
+                    originalData: element,
+                });
+            } else {
+                // If no imageSource, Codia often uses this for styled rectangles (e.g., backgrounds).
+                flatElements.push({
+                    id: element.elementId,
+                    type: 'Rect',
+                    x, y, width, height,
+                    draggable: false,
+                    zIndex: zIndexCounter,
+                    style: {
+                        ...baseStyle,
+                        fill: rgbToHex(element.styleConfig.textColor?.rgbValues),
+                        stroke: rgbToHex(element.styleConfig.borderConfig?.borderColor?.rgbValues),
+                        strokeWidth: element.styleConfig.borderConfig?.borderWidth || 0,
+                        cornerRadius: element.styleConfig.borderConfig?.borderRadius?.[0] || 0
+                    } as ElementStyle,
+                    originalData: element,
+                });
+            }
         }
         
         // Handle Text

@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { EditorCanvas } from './components/EditorCanvas';
@@ -5,7 +6,6 @@ import { JsonModal } from './components/JsonModal';
 import { SAMPLE_CODIA_DATA } from './constants/sample-data';
 import { CodiaData, CanvasElement, SelectedElement, ElementStyle } from './types';
 import { parseCodiaData } from './utils/codiaParser';
-import { CanvasFooter } from './components/CanvasFooter';
 
 const App: React.FC = () => {
     const [elements, setElements] = useState<CanvasElement[]>([]);
@@ -24,6 +24,7 @@ const App: React.FC = () => {
         });
     }, []);
 
+    // FIX: Add state setters to dependency array to be explicit, even though they are stable.
     const processData = useCallback((data: CodiaData) => {
         setCodiaData(data);
         const { baseWidth, baseHeight } = data.data.configuration;
@@ -40,12 +41,13 @@ const App: React.FC = () => {
             setZoom(Math.min(scaleX, scaleY, 1.0)); // Fit to view, but don't scale up past 100% initially
         }
 
-    }, []);
+    }, [setCanvasSize, setCodiaData, setElements, setSelectedElements, setZoom]);
     
     const handleLoadSampleData = useCallback(() => {
         processData(SAMPLE_CODIA_DATA as CodiaData);
     }, [processData]);
 
+    // FIX: Add `setJsonModalOpen` to dependency array.
     const handleLoadJson = useCallback((jsonString: string) => {
         try {
             const data = JSON.parse(jsonString) as CodiaData;
@@ -58,8 +60,9 @@ const App: React.FC = () => {
         } catch (error) {
             alert((error as Error).message);
         }
-    }, [processData]);
+    }, [processData, setJsonModalOpen]);
 
+    // FIX: Add `setElements` and `setSelectedElements` to dependency array.
     const handleUpdateElementStyle = useCallback((style: Partial<ElementStyle>) => {
         setSelectedElements(prevSelected => {
             const selectedIds = new Set(prevSelected.map(el => el.id));
@@ -81,15 +84,17 @@ const App: React.FC = () => {
                 style: { ...sel.style, ...style },
             }));
         });
-    }, []);
+    }, [setElements, setSelectedElements]);
 
 
+    // FIX: Add `setElements` and `setSelectedElements` to dependency array.
     const handleDelete = useCallback(() => {
         const selectedIds = new Set(selectedElements.map(el => el.id));
         setElements(prev => prev.filter(el => !selectedIds.has(el.id)));
         setSelectedElements([]);
-    }, [selectedElements]);
+    }, [selectedElements, setElements, setSelectedElements]);
 
+    // FIX: Add `setElements` and `setSelectedElements` to dependency array.
     const handleDuplicate = useCallback(() => {
         const selectedIds = new Set(selectedElements.map(el => el.id));
         const elementsToDuplicate = elements.filter(el => selectedIds.has(el.id));
@@ -104,8 +109,9 @@ const App: React.FC = () => {
 
         setElements(prev => [...prev, ...newElements]);
         setSelectedElements(newElements.map(el => ({ id: el.id, type: el.type, style: el.style })));
-    }, [elements, selectedElements]);
+    }, [elements, selectedElements, setElements, setSelectedElements]);
 
+    // FIX: Add `setElements` and `setSelectedElements` to dependency array and use `canvasSize` object.
     const handleAddText = useCallback(() => {
         const newTextElement: CanvasElement = {
             id: `text_${Date.now()}`,
@@ -132,7 +138,7 @@ const App: React.FC = () => {
         };
         setElements(prev => [...prev, newTextElement]);
         setSelectedElements([{ id: newTextElement.id, type: newTextElement.type, style: newTextElement.style }]);
-    }, [canvasSize.width, canvasSize.height, elements]);
+    }, [canvasSize, elements, setElements, setSelectedElements]);
 
     const handleExport = useCallback(() => {
         if (!codiaData) return;
@@ -163,11 +169,12 @@ const App: React.FC = () => {
         linkElement.click();
     }, [codiaData, elements]);
     
+    // FIX: Add `setElements` to dependency array.
     const handleTextChange = useCallback((id: string, newText: string) => {
         setElements(prev => 
             prev.map(el => el.id === id && el.type === 'Text' ? { ...el, text: newText } : el)
         );
-    }, []);
+    }, [setElements]);
 
     return (
         <div className="min-h-screen flex flex-col font-sans">
@@ -181,23 +188,21 @@ const App: React.FC = () => {
                 onStyleChange={handleUpdateElementStyle}
                 selectedElements={selectedElements}
                 hasElements={elements.length > 0}
+                zoom={zoom}
+                onZoomChange={setZoom}
             />
             <main ref={mainContainerRef} className="flex-grow flex items-center justify-center p-4 bg-gray-200 relative overflow-hidden">
                 {elements.length > 0 ? (
-                    <>
-                        <EditorCanvas
-                            elements={elements}
-                            onElementsChange={setElements}
-                            selectedElements={selectedElements}
-                            onSelectedElementsChange={setSelectedElements}
-                            width={canvasSize.width}
-                            height={canvasSize.height}
-                            onTextChange={handleTextChange}
-                            zoom={zoom}
-                            onZoomChange={setZoom}
-                        />
-                        <CanvasFooter zoom={zoom} onZoomChange={setZoom} />
-                    </>
+                    <EditorCanvas
+                        elements={elements}
+                        onElementsChange={setElements}
+                        selectedElements={selectedElements}
+                        onSelectedElementsChange={setSelectedElements}
+                        width={canvasSize.width}
+                        height={canvasSize.height}
+                        onTextChange={handleTextChange}
+                        zoom={zoom}
+                    />
                 ) : (
                     <div className="text-center text-gray-500 bg-white p-20 rounded-lg shadow-md">
                         <h2 className="text-2xl font-semibold mb-4">Welcome to the Codia Text Editor</h2>
