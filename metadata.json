@@ -1,0 +1,5 @@
+{
+  "name": "Codia AI Text Editor",
+  "description": "A web application that takes a Codia AI API response, reconstructs the design on a canvas, and allows users to edit the text elements with Canva-like features.",
+  "requestFramePermissions": []
+}
